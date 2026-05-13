@@ -4,10 +4,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
-from helper import group_df, load_cleura_db_files
 from sklearn.model_selection import GroupKFold
 from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader, TensorDataset
+
+from helper import group_df, load_cleura_db_files
 
 
 class IdleAwareAsymmetricMSELoss(nn.Module):
@@ -390,50 +391,6 @@ class TransformerWrapper:
             "mean_step_12_mae": mean_step_12_mae,
             "std_step_12_mae": std_step_12_mae,
         }
-
-    @torch.no_grad()
-    def forecast(self, input_sequence):
-        """
-        input_sequence: pd.DataFrame containing 1 or more rows of history.
-        Must have columns: ['cpu_usage', 'mem_usage', 'mem_alloc', 'vcpus']
-        """
-        self.model.eval()
-
-        # Convert to tensor and add batch dimension
-        # Shape: (1, seq_len, 4)
-        features = ["cpu_usage", "mem_usage", "mem_alloc", "vcpus"]
-        x_tensor = torch.tensor(input_sequence[features].values, dtype=torch.float32).unsqueeze(0).to(self.device)
-
-        # Forward pass
-        # Even if seq_len is 1, the summary token + 1 data point = length 2 for Transformer
-        forecast = self.model(x_tensor)
-
-        # Return as a numpy array of 12 steps
-        return forecast.squeeze(0).cpu().numpy()
-
-    def predict_next_12_steps(self, scaler, new_data_df):
-        """
-        new_data_df: DataFrame with 1 or more rows for a single ID.
-        """
-        self.model.eval()
-        features = ["cpu_usage", "mem_usage", "mem_alloc", "vcpus"]
-
-        # Scale input using the training scaler
-        scaled_input = scaler.transform(new_data_df[features])
-
-        # Convert to tensor (Batch, Seq, Features)
-        input_tensor = torch.tensor(scaled_input, dtype=torch.float32).unsqueeze(0).to(self.device)
-
-        with torch.no_grad():
-            preds_scaled = self.model(input_tensor).squeeze(0).cpu().numpy()
-
-        # Inverse transform only the CPU usage if you want the actual values
-        # Note: This requires a separate scaler for 'cpu_usage' or manual math
-        # Actual = (Pred * CPU_Std) + CPU_Mean
-        cpu_mean = scaler.mean_[0]
-        cpu_std = scaler.scale_[0]
-
-        return (preds_scaled * cpu_std) + cpu_mean
 
     def prepare_dataset(self, df, seq_len=48, horizon=12):
         """
