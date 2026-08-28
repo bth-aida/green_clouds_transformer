@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 
 def load_data(
-    dir_path: str = "../cleura",
+    dir_path: str = "data",
     start_index: int = 0,
     size: int | None = None,
     clean: bool = False,

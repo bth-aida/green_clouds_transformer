@@ -1,11 +1,24 @@
-import time
-
+import numpy as np
 import pandas as pd
 import xgboost as xgb
+from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.model_selection import RandomizedSearchCV
 from tqdm import tqdm
 
 from data_processing import add_features_tree, load_data
+
+
+def mue(pred: pd.Series, real: pd.Series):
+    """Calculates mean under error"""
+    under_errors = real - pred
+    return np.mean(under_errors[under_errors > 0])
+
+
+def upf(pred: pd.Series, real: pd.Series):
+    """Calculates under prediction frequency"""
+    real = np.array(real)  # type: ignore
+    pred = np.array(pred)  # type: ignore
+    return np.mean(pred < real)
 
 
 def run_xgb_grid_search(
@@ -34,8 +47,8 @@ def run_xgb_grid_search(
 
 def run_xgb():
     # load data
-    _, df_train = load_data(size=100, clean=True)
-    _, df_test = load_data(size=50, start_index=100, clean=True)
+    _, df_train = load_data(size=10, clean=True)
+    _, df_test = load_data(size=5, start_index=10, clean=True)
 
     # add features
     df_train = add_features_tree(df_train)
@@ -46,16 +59,12 @@ def run_xgb():
     df_results = df_results[["timestamp", "id", "id_part", "cpu_usage"]]
 
     # train and test
-    start_time = time.time()
-
     param_distributions = {
         "max_depth": [3, 5, 7, 9],
         "learning_rate": [0.01, 0.05, 0.1, 0.2],
         "n_estimators": [50, 100, 200],
         "subsample": [0.6, 0.8, 1.0],
     }
-
-    best_params = []
 
     for hz in tqdm(range(1, 13), "XGBoost Hz"):
         # set target
@@ -68,30 +77,32 @@ def run_xgb():
         df_hz_test.dropna(subset=["target"], inplace=True)
 
         # run model
-        y_pred, params = run_xgb_grid_search(
-            df_hz_train, df_hz_test, param_distributions
-        )
-
-        # store best params
-        best_params.append((hz, params))
+        y_pred, _ = run_xgb_grid_search(df_hz_train, df_hz_test, param_distributions)
 
         df_pred = pd.DataFrame(
             {
                 "timestamp": df_hz_test["timestamp"] + pd.Timedelta(minutes=5 * hz),  # type: ignore
                 "id": df_hz_test["id"],
-                f"pred_{hz}": y_pred,
+                "pred": y_pred,
             }
         )
+        merged = pd.merge(df_pred, df_test, on=["timestamp", "id"], how="inner")
+        merged = merged.dropna(subset=["pred", "cpu_usage"])
 
-        df_results = df_results.merge(df_pred, on=["timestamp", "id"], how="left")
+        y_true = merged["cpu_usage"]
+        y_hat = merged["pred"]
 
-    duration = time.time() - start_time
-    print("Duration: ", duration)
-    for bp in best_params:
-        print(bp)
-    df_results.to_csv("results_xgb.csv")
+        rmse = np.sqrt(mean_squared_error(y_true, y_hat))
+        mae = mean_absolute_error(y_true, y_hat)
+        mue_val = mue(y_hat, y_true)
+        upf_val = upf(y_hat, y_true)
 
-    # TODO: save duration and best params in report
+        # results
+        print(f"--- Results for hz {hz} ---")
+        print(f"RMSE: {rmse:.4f}")
+        print(f"MAE:  {mae:.4f}")
+        print(f"MUE:  {mue_val:.4f}")
+        print(f"UPF:  {upf_val:.4f}")
 
 
 def main():

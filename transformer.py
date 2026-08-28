@@ -535,7 +535,7 @@ class TransformerWrapper:
 
 
 def cross_val():
-    _, df_vm = load_data(start_index=0, size=2, clean=True)
+    _, df_vm = load_data(start_index=0, size=10, clean=True)
     tf = TransformerWrapper()
 
     # kfold
